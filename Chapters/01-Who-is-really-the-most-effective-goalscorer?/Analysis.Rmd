@@ -13,6 +13,7 @@ In the second part data will be analyzed and prepared. Our model focuses on goal
 
 In the third part the results will be outputted and explained.
 
+Thanks go out to BiscuitChaserFC for inspiring this idea of our model and ewen_ for the package for understatR! Link to the BiscuitChaserFC article: https://biscuitchaserfc.blogspot.com/2020/09/shot-data-for-top-5-european-leagues.html
 
 Import libraries 
 ```{r}
