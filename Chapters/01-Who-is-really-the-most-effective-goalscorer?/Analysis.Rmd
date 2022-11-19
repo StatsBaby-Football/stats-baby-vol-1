@@ -232,7 +232,7 @@ n = 3
 
 ## Part 1
 
-All the code related to the process of pulling the "understatR" data is commented, because the performance of rendering the R markdown file to html was very slow as good as impossible. This pulling process can take up many hours. You can just comment out the code at this point if you want to test the code yourselves.
+All the code related to the process of pulling the "understatR" data is commented, because the performance of rendering the R markdown file to html or pdf was very slow as good as impossible. This pulling process can take up many hours. You can just comment out the code at this point if you want to test the code yourselves.
 
 We get the data for the top 5 European leagues, we can drop the RFPL using the dplyr filter
 # ```{r}
@@ -318,7 +318,7 @@ unique(shot_data$shotType)
 
 Let's head the first 10 rows of the data set
 ```{r}
-#head(shot_data, 10)
+head(shot_data, 10)
 ```
 
 Let's check for missing or negative values in the data set
