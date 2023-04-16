@@ -1,0 +1,830 @@
+---
+title: "Which assister provider was wasted the most"
+output:
+  pdf_document: default
+date: "2023-04-16"
+---
+
+Everyone knows about the best assist providers in the world of football. It's very easy to measure. But can we assume that each brilliant pass gets utilized by the strikers? What about players who might provided brilliant passes to their teammates but the teammates were not able to score?
+
+This notebook aims to research on this idea. 
+
+is for analyzing goal scoring abilities of the best goalscorer in the last 8 year in the top 5 leagues in the world of football (season 2014/2015 to 2021/2022). We rank the players by the total amount of goals succeeding their total amount of expected Goals (xG), which means we take the difference between "total goals scored" minus "total goals expected". Therefore this notebook is divided into 3 parts.
+
+In the first part all necessary data will be imported via the "understatr" library.
+
+In the second part data will be analyzed and prepared. Our model focuses on goals and expected Goals (xG). In order to get the meaningful xG ranges, in which we will compare different players, we have to modify the data. 
+
+In the third part the results will be outputted and explained.
+
+Thanks go out to BiscuitChaserFC for inspiring this idea of our model and ewen_ for the package for understatR! Link to the BiscuitChaserFC article: https://biscuitchaserfc.blogspot.com/2020/09/shot-data-for-top-5-european-leagues.html
+
+Import libraries 
+```{r}
+library(tidyverse)
+library(understatr)
+library("dplyr") 
+library(devtools)
+library(ggplot2)
+library(ggsoccer)
+library('bigassertr')
+```
+
+## Start of function declaration
+
+This function formats numbers in a from us desired format
+```{r}
+
+so_formatter <- function(x) {
+  dplyr::case_when(
+      x < 1e3 ~ as.character(x),
+      x < 1e6 ~ paste0(as.character(x/1e3), "K"),
+      x < 1e9 ~ paste0(as.character(x/1e6), "M"),
+      TRUE ~ "To be implemented..."
+  )
+}
+
+```
+
+Variable Declaration
+```{r}
+n = 3
+```
+
+## Part 1
+
+All the code related to the process of pulling the "understatR" data is commented, because the performance of rendering the R markdown file to html or pdf was very slow as good as impossible. This pulling process can take up many hours. You can just comment out the code at this point if you want to test the code yourselves.
+
+We get the data for the top 5 European leagues, we can drop the RFPL using the dplyr filter
+```{r}
+ leagues<-get_leagues_meta()
+ leagues<-leagues%>%
+   filter(!league_name == "RFPL")
+```
+
+These are the seasons we will take a closer look to
+```{r}
+unique(leagues$season)
+```
+
+Pull team data with the purrr package to cycle through each unique league name and pull the team data for each match within the top 5 leagues
+```{r}
+team_data= data.frame()
+dfTemp = data.frame()
+```
+
+Pull team data for the years desired with the purrr package to cycle through each unique league name and pull the team data for each match within the top 5 leagues
+
+# ```{r}
+ for (year in c (2014, 2015, 2016, 2017, 2018, 2019,  2020, 2021)) {
+   dfTemp<-map_dfr(unique(leagues$league_name), get_league_teams_stats, year = year)
+   team_data = rbind(team_data,dfTemp)}
+ dfTemp= data.frame()
+# ```
+
+
+Count the number of occurrences of each team by team_id and team_name
+# ```{r}
+print(team_data %>% group_by(team_id,team_name, league_name) %>% summarize(count=n()))
+# ```
+
+Now we pull the player data for the desired years, here again we make use of the understatR library
+# ```{r}
+player_data = data.frame()
+ for (year in c (2014, 2015, 2016, 2017, 2018, 2019,  2020, 2021)) {
+   dfTemp<-map_dfr(unique(team_data$team_name), get_team_players_stats, year = year)
+   player_data = rbind(player_data,dfTemp)}
+dfTemp= data.frame()
+# ```
+
+First, create a vector of player_id (this is required in the UnderstatR get_player_shots() function
+# ```{r}
+players<-c(player_data$player_id)
+# ```
+
+Now we pull the event data and get all the shots in these time period
+# ```{r}
+shot_data <- players %>% 
+map_dfr(.,possibly(get_player_shots,otherwise=NULL))
+#```
+
+Let's remove the data we don't need anymore
+# ```{r}
+rm(leagues, player_data, team_data, players, year)
+# ```
+
+Let's export the shot_data as the process of pulling it from the internet was taking many hours
+#```{r}
+write.csv(shot_data, "shot_data.csv")
+#```
+
+```{r}
+shot_data <- read.csv(file = 'shot_data.csv')
+```
+
+## Part 2 
+
+Print the column names and the structure. If we go through the data set we see that there a lot of interesting columns like the x-y-coordinates of every given shot, the assist giver and the xG of every shot and so on.
+```{r}
+names(shot_data)
+str(shot_data)
+```
+
+```{r}
+nrow(shot_data)
+unique(shot_data$result)
+unique(shot_data$situation)
+unique(shot_data$shotType)
+```
+  We see that there are 370719 total shots in the data set. The results and the situations of the shots give the expected outputs. Shot types are divided in to the both foots, header and other body parts.
+
+Let's head the first 10 rows of the data set
+```{r}
+head(shot_data, 10)
+```
+
+Let's check for missing or negative values in the data set
+```{r}
+print(sapply(shot_data, function(x) sum(is.na(x))))
+```
+
+There are only missing values for the "player_assisted" column which is quite normal, as not every shot is assisted by someone. There are cases when the shooter gets the ball by the opponents's defender for example. It's quite interesting though that around 26.6% of the shots don't have an assist. Let's take a closer look at free kicks and penalties.
+
+```{r}
+nrow(shot_data[(shot_data$situation == "Penalty" | shot_data$situation == "DirectFreekick" ),])/nrow(shot_data)
+```
+Free kick and penalties make up for around  5.7% of the data
+
+  We can see that in the data set penalties and direct freekicks don't have an assist which then explaines the high percentage of approx. 26.6%
+
+Let's check for any negative values
+```{r}
+print(shot_data %>% select_if(~any(. < 0)))
+```
+  As expected there are none negative values. For this data set negative values wouldn't make any sense
+
+Let's see what percentage of the total shots taken are penalty kicks
+```{r}
+nrow(shot_data[(shot_data$situation != "Penalty"),])
+1-(nrow(shot_data[(shot_data$situation != "Penalty"),])/nrow(shot_data))
+```
+  The total amount of given shots excluding penalties is 366015 and therefore penalties make up for 1.27% of total given shots
+
+Here we make a new column and bin there different ranges for the xG data
+```{r}
+shot_data<-shot_data%>%mutate(xG_Ranges = cut(xG, breaks = c(-Inf, 0.1, 0.2, 0.4, 0.65, 0.85, 1)))
+shot_data$xG_Ranges <- as.character(shot_data$xG_Ranges)
+```
+
+
+But before that let's quickly get the xG-probability for penalties within these 8 seasons
+```{r}
+mean(shot_data$xG[shot_data$situation=="Penalty"])
+```
+  The probability of a penalty resulting in a goal is 75.64% for the top 5 leagues. This is an expected value but some might be suirprised that it isn't higher.
+
+
+We are only interested for shots who were given after midfield. There might be goals scored from the own yard but outliers don't interest us in this model. 
+But we for sure will include all shots given, independent of their position when we will analyze the conversion rate of all given shots per player.
+We also exclude penalties here, as we already calculated the xG for penalties.
+```{r}
+areasDf <- shot_data[(shot_data$X >= 0.5 & shot_data$situation != "Penalty"),] 
+```
+
+
+In this step we will divide the playfield into different areas in order to analyze the xG of these sections and compare the players qualities within these areas.
+Therefore the field must be divided accordingly with the right x-y-values within the coordinate system of the field.
+
+```{r}
+areasDf<- areasDf %>%
+  mutate(xGAreas = case_when(X < 0.8294  & Y < 0.211 ~ 'Area 10', 
+                          X < 0.8294  & Y > 0.789 ~ 'Area 10', 
+                          
+                          X < 0.7163 & Y >= 0.211 & Y <= 0.789  ~ 'Area 9', 
+                          X >= 0.8294  & Y < 0.211 ~ 'Area 8', 
+                          X >= 0.8294  & Y > 0.789  ~ 'Area 8',
+                          
+                          X >= 0.7163 & X < 0.8294  & Y >= 0.211 & Y <= 0.3678   ~ 'Area 7', 
+                          X >= 0.7163 & X < 0.8294  & Y >= 0.6322 & Y <= 0.789  ~ 'Area 7', 
+                          X >= 0.7163 & X < 0.8294  & Y > 0.3678 & Y < 0.6322  ~ 'Area 6', 
+                          X >= 0.8294  & Y >= 0.211 & Y < 0.3678  ~ 'Area 5', 
+                          X >= 0.8294  & Y >= 0.6322 & Y <= 0.789 ~ 'Area 5', 
+                          
+                          X >= 0.8294  & X <= 0.8846 & Y > 0.3678 & Y < 0.6322  ~ 'Area 4',
+                          X > 0.8846 & X < 0.9423 & Y > 0.3678 & Y < 0.6322    ~ 'Area 3', 
+                          X >= 0.9423 & Y > 0.3678 & Y < 0.44222  ~ 'Area 2', 
+                          X >= 0.9423 & Y > 0.55778 & Y < 0.6322 ~ 'Area 2', 
+                          X >= 0.9423 & Y >= 0.44222 & Y <= 0.55778  ~ 'Area 1', 
+                          TRUE ~ 'e'))
+
+unique(sort(areasDf$xGAreas))
+```
+  The output of the unique values of the xG areas shows us that there were no errors in the condition model. The error would be marked with the value "e"
+
+We have to create a vector with our x-y-coordinates to plot in the field map. Therefore we assign the real values to variables to have a better readability of the vectors.
+```{r}
+xA = 0.5
+xB = 0.8294 
+xC = 0.9423 
+xD = 0.8846 
+xE = 0.7163 
+x1 = 1
+
+yA = 0.211 
+yB = 0.789 
+yC = 0.3678 
+yD = 0.44222 
+yE = 0.55778 
+yF = 0.6322 
+y0 = 0 
+
+```
+
+We have to create a vector with our x-y-coordinates to plot in the field map
+```{r}
+xmin <- c(xC, xC, xC, xD, xB, xB, xB, xE, xE, xE, xB, xB, xA, xA, xA) *100
+xmax <- c(x1, x1, x1, xC, xD, x1, x1, xB, xB, xB, x1, x1, xE, xB, xB) *100
+ymin <- c(yD, yE, yC, yC, yC, yF, yA, yC, yF, yA, yB, y0, yA, yB, y0) *100
+ymax <- c(yE, yF, yD, yF, yF, yB, yC, yF, yB, yC, x1, yA, yB, x1, yA) *100
+xGAreas <- c("Area 1", "Area 2", "Area 2", "Area 3", "Area 4", "Area 5", "Area 5", "Area 6", "Area 7", "Area 7", "Area 8", "Area 8", "Area 9", "Area 10","Area 10")
+
+xG_plot_areas <- data.frame(xmin, xmax, ymin, ymax, xGAreas)
+rm(xA,xB, xC, xD, xE, x1, yA, yB, yC, yD, yE, yF, y0, xmin, xmax, ymin, ymax)
+```
+
+```{r}
+pltTitle <- "Expected Goals (xG) divided into different areas"
+plot_areas_xG(xG_plot_areas, xGAreas, pltTitle)
+```
+
+
+Let's have a look at the average xG of the different xG areas
+```{r}
+xG_avrg <- areasDf %>% 
+  group_by(xGAreas) %>%
+  summarise(across(xG, mean, na.rm = TRUE))
+
+xG_avrg[order(-xG_avrg$xG),]
+```    
+  As expected the xG areas nearer to goal are significantly higher. Interesting to see is that the area 4 has a higher xG as the area 5, even though area 5 is nearer to the goal. The reason for this is that the degree of the shot position to the goal is really important for a xG model.
+
+Now we will add the average xG to the "xG_plot_areas" dataframe, according to the xG areas
+```{r}
+xG_plot_areas <- xG_plot_areas %>% full_join(xG_avrg)
+rm(xG_avrg)
+```
+
+We prepare the data for the fieldmap and also format our xG probabilities for a nicer display
+```{r}
+xG_plot_areas$xG <- xG_plot_areas$xG * 100
+xG_plot_areas$xG <- round(xG_plot_areas$xG, digits = 2)
+xG_plot_areas<- xG_plot_areas %>%
+  unite('xGChar', xGAreas:xG, sep= " = ", 
+        remove = FALSE)
+xG_plot_areas$xG <- xG_plot_areas$xG / 100
+xG_plot_areas$xGChar <- paste(xG_plot_areas$xGChar, "%") 
+head(xG_plot_areas)
+xGChar <- xG_plot_areas$xGChar
+```
+
+Now we will plot the fieldmap with the  xG probabilities for the different areas
+
+
+```{r}
+pltTitle <- "Expected Goals (xG) divided into different areas with it's probabilities"
+plot_areas_xG(xG_plot_areas, xGChar, pltTitle)
+```
+
+Some data manipulations
+```{r}
+get_amount_group <-function(df, strColName, strNewCol) {
+  df <- df %>%
+    group_by(df[strColName]) %>%
+    add_count(name = strNewCol)
+  df$areaShots <- str_c(df[strColName], ' = ', df[strNewCol])
+  return(df)
+}
+
+```
+
+```{r}
+dfTemp <- areasDf
+dfTemp <- get_amount_group(dfTemp, "result", "shots_distribution")
+```
+
+
+```{r}
+head(dfTemp, 10)
+```
+
+Format the data set
+```{r}
+dfTemp["shots_distribution"] <- so_formatter(dfTemp["shots_distribution"])
+```
+
+
+We prepare the data for the fieldmap with total shots per area and also format the numbers for a nicer display
+```{r}
+dfTemp <- areasDf
+df_test <- dfTemp %>% group_by(xGAreas) %>% summarize(count=n())
+assert_lengths(sum(df_test$count), nrow(areasDf))
+df_test$count <- so_formatter(df_test$count)
+dfTemp <- dfTemp %>% full_join(df_test)
+dfTemp$areaShots <- str_c(dfTemp$xGAreas, ' = ', dfTemp$count)
+areaShots <- dfTemp[,c("xGAreas",  "areaShots")] 
+areaShots = areaShots[!duplicated(areaShots), ]
+xG_plot_areas <- xG_plot_areas %>% full_join(areaShots)
+rm(areaShots, df_test)
+areaShots <- xG_plot_areas$areaShots
+xG_plot_areas
+```
+
+Now we will look at all the shots forward the midfield and draw the the associated areas
+```{r}
+dfTemp <- dfTemp[,c("X","Y","xG","result","xGAreas", "areaShots")] 
+dfTemp$X <- dfTemp$X * 100
+dfTemp$Y <- dfTemp$Y * 100
+print(sum(is.na(dfTemp$xGAreas)))
+```
+We also double check if the column "xGAreas" has some missing value, which is not the case
+
+Let's plot all the shots given from the midfield and categorize them into our pre-defined areas
+```{r}
+
+ggplot(dfTemp) +
+  annotate_pitch(colour = "white",
+                 fill   = "springgreen4",
+                 limits = FALSE) +
+  geom_point(aes(x = X, y = 100 - Y, fill = areaShots),
+             shape = 21,
+             size = 1.5) +
+
+  geom_rect(data = xG_plot_areas, inherit.aes=FALSE, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax,
+       fill = areaShots), colour=NA, alpha=.45) + 
+  
+
+  scale_fill_manual('xG Areas',
+                      values=c("cyan", "darkred", "deeppink", "darkseagreen", "cornflowerblue", "yellow", "purple", "orange", "chartreuse3",  "darkslategrey" ),
+                      guide = guide_legend(override.aes = list(alpha = 0.45))) +
+  theme_pitch() +
+  theme(panel.background = element_rect(fill = "springgreen4")) +
+  coord_flip(xlim = c(50, 101),
+             ylim = c(-12, 112)) +
+  ggtitle("All shots divided into different xG areas")
+```
+Most shots were taken in Area 6 which is not that surprising. It might be interesting that so many shots were taken in Area 9.
+
+```{r}
+dfTemp = data.frame()
+```
+
+# Part 3 Results
+
+In the next steps we will group the players and filter out players who scored less than 120 goals from the season 2014/2015 to 2021/2022, the reason behind this filter is to rank and find the best scoring players. The players had to score at least 15 goals in average per seasons, as we have 8 seasons.
+
+```{r}
+t=120
+df_best <- get_goals(FALSE, shot_data, t)
+listPlayersFinal <- df_best$player
+df_best
+```
+
+The output shows us that Robert Lewandowski was the player with the most goals counting 238, closely followed by Lionel Messi and Cristiano Ronaldo. Reminder: This output contains also penalties, we will look at the numbers without penalties in a moment.
+
+As penalties distort the results we decided to filter them out. Thus we lowered the threshold of 120 goals to 103 goals which means that the players must have a scored at least approx. 13 goals on average per season without penalties.
+```{r}
+t=100
+df_best <- get_goals(TRUE, shot_data, t)
+listPlayersFinal <- df_best$player
+df_best
+```
+
+The output shows us that, without considering penalties, Lionel Messi was the player with the most goals counting 203, closely followed by Robert Lewandoski. As expected Cristiano Ronaldo takes the third place. 
+
+
+We can also output the players with the most Penalty and Free kick goals.
+```{r}
+penalties_df <- shot_data[(shot_data$situation == "Penalty"),]
+freekicks_df <- shot_data[(shot_data$situation == "DirectFreekick"),]
+```
+
+```{r}
+t = 0
+df_best<-get_goals(FALSE, penalties_df, t)
+listPlayers <- df_best$player[1:10]
+head(df_best, 10)
+```
+After looking more into detail, we see that Ciro Immobile is also a player who benefits a lot from penalties.
+
+Now we want to get all interesting key figures behind penalty data. Herefore we take the best 10 player who scored the most penalties. Via a pre-defined function we will now determine which player has the best Conversion Rate, Over/Underperformance of the xG and so on. The same procedure is followed when we analyzing free kicks.
+
+```{r}
+col_header <- c("Player", "Conversion_Rate", "Goals_Expected", "Goals", "Shots", "Average_xG", "Performance_xG", "Performance_Goals")
+```
+
+Let's have a deeper look into all penalties given by the top 10 player and get the results.
+```{r}
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayers) {
+  
+  df_best <-results_standards(TRUE, shot_data, df_best, strName)
+}
+df_best
+```
+From a purely statistical point of view we can see that Robert Lewandowski actually is the best penalty taker by the top 10 penalty goalscorers. He scored approx.  6 goals more by penalty regarding his xG value. The approx. number 6 is the difference between Expected Goals in total and the actual amount of scored Goals. He also has the best Conversion Rate. Lionel Messi under performed in this discipline. He scored approx. 1 penalty less as he should according to his xG value.
+
+Interpreting the Conversion Rates means that if we take Lewandowski as example, we can conclude that statistically, he scores around 92 goals in 100 penalties. In contrast to that Messi only scores around 72 goals.
+
+Let's do the same for freekicks
+```{r}
+df_best<-get_goals(TRUE, freekicks_df, t)
+listPlayers <- df_best$player[1:10]
+head(df_best, 10)
+```
+The player with the most free kick goals is by far Lionel Messi followed by James Ward-Prowse. There are quite a few players with 10 or 11 free kick goals. We now will output the amount of free kicks taken by the top 10 of these players.
+
+Let's have a depper look into all free kicks given by the top 10 player and get the results.
+```{r}
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayers) {
+  
+  df_best <-results_standards(FALSE, shot_data, df_best, strName)
+}
+df_best
+```
+No player has underperformed considering their xG value. James Ward-Prowse has the best Total Goal Performance and Conversion Rate (around 14 free kick goals in 100 attempts, from a statistical pov.). He succeeded his total amount of goals expected by approx. 8 goals followed by Lionel Messi who succeeded his expected amount of goals by 7 goals. If we consider the "Performance_xG" column ("Conversion_rate" - "Average_xG") we see that Lionel Messi is not the second best player. This column is a pure statistical ratio which is also very important as it doesn't consider the amount of goals. But as we here talking still about football, the sheer amount of goals scored is one of the most important, if not the most skill for a goal scorer. Thus we decided to take this metric as our primary performance metric. This methodology will hold on also for the following analysis. 
+
+
+```{r}
+listPlayersFinal
+```
+These are the 21 players who made it into our list. We decided to take also players like Erling Haaland and Zlatan Ibrahimovic into the list because as we all now these players are prolific goal scorers whose time window of their prime unfortunately not lies in these 8 seasons (2014/2015 to 2021/2022) we are looking at. Also both of them didn't fully play in the top 5 leagues. Ibrahimovic played in the MLS for almost 2 years and Haaland was transferred to Borussia Dortmund at the beginning of 2020. 
+
+We also took Neymar (127 goals) and Iago Aspas (125 goals) into our list as they would have made it into the list in the first place as we considered players with 120 goals or more including penalties. Although we think that penalties distort our model we have to admit that being good in penalties is a very important skill set for a goal scorer and thus decided to include these 2 players too.
+
+Antoine Griezmann had 119 goals which is the reason we also included him in the list, as he had only had 1 goal less than the threshold of 120 goals
+
+```{r}
+listPlayers2 <- c("Erling Haaland", "Zlatan Ibrahimovic", "Neymar", "Iago Aspas")
+listPlayersFinal <- append(listPlayersFinal, listPlayers2)
+rm(listPlayers2)
+```
+
+Via a pre-defined function we will now determine which player has the best Conversion Rate and xG Performance for the different xG areas and ranges in the following statistics. 
+
+Let's have a look into all shots given by the player and get the results for the last season 2021/2022.
+
+Let's have a look into all shots given by the player and get the results.
+```{r}
+lowTshld = 0.0000
+upTshld = 1.000
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  
+  df_best <-results_ranges(TRUE, shot_data, df_best, strName, lowTshld, upTshld)
+}
+listPlayers <- df_best$Player[1:n]
+df_best
+```
+The results show that Lionel Messi has the best numbers. He succeed his total amount of expected goals by approx. 36 goals, followed by Heung-Min Son with approx. 30 goals and Antoine Griezmann (approx. 22). It's important to note that Lionel Messi had an advantage as he also has the most goals scored (209) and thus his total number of "Performance_Goals" will be higher/lower tendentiously. But as we said before our purpose of the model was to take the total amount of goals into consideration as it is the most important number for a striker. Please refer back to the free kicks/penalties results above where we explained the model metrics more in detail.
+
+Neymar, Edinson Cavani and Robert Lewandowski didn't performed so well in our model. As for Messi, Lewandowski also has much more goals (203) than the average player on the list and thus his "Performance_Goals" value will be tendentiously higher/lower. Next to these 3 players Pierre-Emerick Aubameyang is the only player who scored less goals than expected, approx. 2 goals. 
+
+Cristiano Ronaldo has a positive goal amount of value of aprrox. 3 goals which positions him on the 20th place of 25 players. As for Messi and Lewandowski, we also have to consider here, his sheer total amount of goals (182), which is  over average. As expected these 3 players and also Harry Kane take with ease the most shots.
+
+From a purely statistical point of view Erling Haaland has the best performance with a "Performance_xG" value of 6.2%, followed by Son with 5.2%. He also has the best Conversion Rate of 27.7%, which means that aprrox. every 4th shot of his finds his way behind the net. Interesting to note is that Edinson Cavani has the third best Conversion of 2.09% which means that approx. every 5th shot results in a goal.
+
+When focusing on the Average xG, it might give some insight about which players has a smart shot/position selection. Cavani has the highest Average xG with 22.2% which we can interpret as either he has tendentiously the smartest shot/position selection or that he tendentiously played in teams that provided him with good shot positions in average.
+
+As Haaland is a young  player it will be quite interesting to see, if he we will be able to outperform Lionel Messi in the Total Goals Performance ("Performance_Goals") in the future.
+
+Let's look at the the shotmap of the top three player in our list.
+```{r}
+for (strName in listPlayers) {
+  print(plot_shot_player(TRUE , shot_data, strName, lowTshld, upTshld))
+}
+```
+There is nothing unusual in the shotmap.The dots size is depending on the xG Value of each shot. We see that shots near to the goal and with a good degree to it, seem to have the biggest xG for each of these players. Let's plot only shots which resulted in a goal.
+
+```{r}
+for (strName in listPlayers) {
+  print(plot_shot_player(FALSE, shot_data, strName, lowTshld, upTshld))
+}
+```
+Pretty balanced for all of them. Interesting to see is, that all of them are pretty good regarding scoring goals with a xG of smaller 0.2
+
+
+For your interest we also plotted Cristiano's goalmap down under
+```{r}
+plot_shot_player(FALSE, shot_data, "Cristiano Ronaldo", lowTshld, upTshld)
+```
+
+Let's have a look into a all shots given by a player considering the xG Range, which means that we only consider situations where the shot had at least a 50% chance of becoming a goal. These shots can be seen as big chances.
+```{r}
+lowTshld = 0.5
+upTshld = 1.000
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  
+  df_best <-results_ranges(TRUE, shot_data, df_best, strName, lowTshld, upTshld)
+}
+listPlayers <- df_best$Player[1:n]
+df_best
+```
+Jamie Vardy leads the list in this range with a positive value of approx. 6 goals. He is followed by Iago Aspas (approx. 5) and Sadio Mané (approx 3). It's quite interesting that most of the players (17 of 25) underperform in this range, which we classified as big chances, even though the the Conversion Rate is higher than 50% for every player, which means they all tend to score given a big chance (at least 50% xG).
+
+```{r}
+for (strName in listPlayers) {
+  print(plot_shot_player(TRUE , shot_data, strName, lowTshld, upTshld))
+}
+```
+
+```{r}
+
+for (strName in listPlayers) {
+  print(plot_shot_player(FALSE , shot_data, strName, lowTshld, upTshld))
+}
+
+```
+We see that Sadio Mane really made the difficult goals compared to the other 2
+
+Let's have a look into a all shots given within a xG range of 25% to 50%. These shots can be seen as middle chances.
+```{r}
+lowTshld = 0.25
+upTshld = 0.5
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  
+  df_best <-results_ranges(TRUE, shot_data, df_best, strName, lowTshld, upTshld)
+}
+listPlayers <- df_best$Player[1:n]
+df_best
+```
+In this category Higuain leads the list with a Performance Goals value of almost 11. Haaland again conivinces us with a Conversion Rate of almost 60%. 
+
+```{r}
+for (strName in listPlayers) {
+  print(plot_shot_player(TRUE , shot_data, strName, lowTshld, upTshld))
+}
+```
+Interesting to see for the top 3 of our list is, that all of them are almost able to score every 2th shot for middle chances.
+
+```{r}
+
+for (strName in listPlayers) {
+  print(plot_shot_player(FALSE , shot_data, strName, lowTshld, upTshld))
+}
+
+```
+
+
+Let's have a look into a all shots given by a player considering the xG Range, which means that we only consider situations where the shot had at least a 10% and a maximum of 25% chance of becoming a goal. These shots can be seen as small chances.
+```{r}
+lowTshld = 0.0
+upTshld = 0.25
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  
+  df_best <-results_ranges(TRUE, shot_data, df_best, strName, lowTshld, upTshld)
+}
+listPlayers <- df_best$Player[1:n]
+df_best
+```
+Messi really loves small chances. Interesting as he didn't performed so well for big chances. Son again is very visible far above in the result list. Suarez occupies the 3rd place. A name which shouldn't surprise you.
+
+Here you can see the shot- and goalmap for the top 3
+
+```{r}
+for (strName in listPlayers) {
+  print(plot_shot_player(TRUE , shot_data, strName, lowTshld, upTshld))
+}
+```
+
+```{r}
+
+for (strName in listPlayers) {
+  print(plot_shot_player(FALSE , shot_data, strName, lowTshld, upTshld))
+}
+
+```
+Let's have a look who had the best values in the last season (2021/2022)
+```{r}
+curr_shot_data <- shot_data[(shot_data$year == "2021" ),]
+```
+
+```{r}
+lowTshld = 0.0
+upTshld = 1.00
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  
+  df_best <-results_ranges(TRUE, curr_shot_data, df_best, strName, lowTshld, upTshld)
+}
+listPlayers <- df_best$Player[1:n]
+df_best
+```
+The best performer of the last season was Son followed by Vardy and Immobile. Jamie Vardy has the best "Performance_xG" of 9.1%. Higauin has no values as he didn't played in the top 5 league Europe last season. From a statistical point of view Son's recent hype seems to be more than deserved.
+
+Here you can see the shot- and goalmaps.
+
+```{r}
+
+for (strName in listPlayers) {
+  print(plot_shot_player(TRUE , curr_shot_data, strName, lowTshld, upTshld))
+}
+
+```
+
+
+```{r}
+
+for (strName in listPlayers) {
+  print(plot_shot_player(FALSE , curr_shot_data, strName, lowTshld, upTshld))
+}
+
+```
+
+#Now we will highlight the different areas which we defined before
+
+```{r}
+pltTitle <- "Expected Goals (xG) divided into different areas with it's probabilities"
+plot_areas_xG(xG_plot_areas, xGChar, pltTitle)
+```
+
+```{r}
+outbox = 'Outside Box'
+insideBox = 'Inside Box'
+inside5 = 'Inside 5'
+areas_spec<- shot_data %>%
+  mutate(xGAreas = case_when(X < 0.8294  & Y < 0.211 ~ 'Area 10', 
+                          X < 0.8294  & Y > 0.789 ~ 'Area 10', 
+                          
+                          X < 0.7163 & Y >= 0.211 & Y <= 0.789  ~ 'Area 9', 
+                          X >= 0.8294  & Y < 0.211 ~ 'Area 8', 
+                          X >= 0.8294  & Y > 0.789  ~ 'Area 8',
+                          
+                          X >= 0.7163 & X < 0.8294  & Y >= 0.211 & Y <= 0.3678   ~ outbox, 
+                          X >= 0.7163 & X < 0.8294  & Y >= 0.6322 & Y <= 0.789  ~ outbox, 
+                          X >= 0.7163 & X < 0.8294  & Y > 0.3678 & Y < 0.6322  ~ outbox, 
+                          
+                          X >= 0.8294  & Y >= 0.211 & Y < 0.3678  ~ insideBox, 
+                          X >= 0.8294  & Y >= 0.6322 & Y <= 0.789 ~ insideBox, 
+                          X >= 0.8294  & X <= 0.8846 & Y > 0.3678 & Y < 0.6322  ~ insideBox,
+                          X > 0.8846 & X < 0.9423 & Y > 0.3678 & Y < 0.6322    ~ insideBox, 
+                          X >= 0.9423 & Y > 0.3678 & Y < 0.44222  ~ insideBox, 
+                          X >= 0.9423 & Y > 0.55778 & Y < 0.6322 ~ insideBox, 
+                          X >= 0.9423 & Y >= 0.44222 & Y <= 0.55778  ~ insideBox, 
+                          TRUE ~ 'e'))
+
+unique(sort(areas_spec$xGAreas))
+```
+
+```{r}
+xmin <- c(0.8294) *100
+xmax <- c(1) *100
+ymin <- c(0.211) *100
+ymax <- c(0.789) *100
+insideAreas <- c("Inside Box")
+
+insideBox_areas <- data.frame(xmin, xmax, ymin, ymax, xGAreas)
+```
+
+```{r}
+outsideAreas <- c("Outside Box")
+outBox_areas <- data.frame(0.7163, 0.8294, 0.211, 0.789 , xGAreas)
+```
+
+
+```{r}
+ df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+ for (strName in listPlayersFinal) {
+   df_best <- results_area(TRUE, areas_spec, df_best, strName, insideBox)
+   listPlayers <- df_best$Player[1:n]
+ }
+ df_best
+```
+
+```{r}
+
+ for (strName in listPlayers) {
+   print(plot_areas(areas_spec, strName , insideBox_areas, insideAreas ))
+ }
+
+```
+ 
+
+
+Let's look who is the best outside the box.
+```{r}
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  df_best <- results_area(TRUE, areas_spec, df_best, strName, outbox)
+}
+listPlayers <- df_best$Player[1:n]
+df_best
+```
+Over 25% of Messis goals is outside the box. He leads this list with around 19 goals more than expected. From a purely statistical point of view, Antoine Griezmann is the best performer in this list, followed by Mbappe and Cavani.
+
+After analyzing the inside and outside area of the box, we will go in further detail for all the different 10 areas which we mentioned before.
+
+Down under you can see the results.
+
+Area 1
+```{r}
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  df_best <- results_area(TRUE, areasDf, df_best, strName, "Area 1")
+}
+df_best
+```
+
+Area 2
+```{r}
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  df_best <- results_area(TRUE, areasDf, df_best, strName, "Area 2")
+}
+df_best
+```
+
+Area 3
+```{r}
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  df_best <- results_area(TRUE, areasDf, df_best, strName, "Area 3")
+}
+df_best
+```
+
+Area 4
+
+```{r}
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  df_best <- results_area(TRUE, areasDf, df_best, strName, "Area 4")
+}
+df_best
+```
+
+Area 5
+```{r}
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  df_best <- results_area(TRUE, areasDf, df_best, strName, "Area 5")
+}
+df_best
+```
+
+
+Area 6
+```{r}
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  df_best <- results_area(TRUE, areasDf, df_best, strName, "Area 6")
+}
+df_best
+```
+
+
+Area 7
+```{r}
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  df_best <- results_area(TRUE, areasDf, df_best, strName, "Area 7")
+}
+df_best
+```
+
+
+Area 8
+```{r}
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  df_best <- results_area(TRUE, areasDf, df_best, strName, "Area 8")
+}
+df_best
+```
+
+
+Area 9
+```{r}
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  df_best <- results_area(TRUE, areasDf, df_best, strName, "Area 9")
+}
+df_best
+```
+
+Area 10
+```{r}
+df_best <- setNames(data.frame(matrix(ncol =length(col_header), nrow = 0)), col_header)
+for (strName in listPlayersFinal) {
+  df_best <- results_area(TRUE, areasDf, df_best, strName, "Area 10")
+}
+df_best
+```
+
+#Herewith the notebook is completed. Big Thanks for sticking this long. We hope you enjoyed our analysis. 
+We appreciate your feedback. 
+See you next time!
+
